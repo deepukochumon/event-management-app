@@ -1,143 +1,317 @@
 import React, { useMemo, useState } from 'react';
-import { AppBar, Box, Button, Container, Dialog, DialogContent, DialogTitle, IconButton, MenuItem, Stack, Tab, Tabs, TextField, Toolbar, Typography, Alert, Chip, Divider, Paper, Grid, Card, CardContent, CircularProgress, Table, TableBody, TableCell, TableHead, TableRow } from '@mui/material';
-import { Add, CalendarMonth, Dashboard, Delete, Edit, Event as EventIcon, People, Refresh, Search } from '@mui/icons-material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { format, parseISO, isAfter, isBefore, startOfDay } from 'date-fns';
+import {
+  Alert,
+  AppBar,
+  Avatar,
+  Box,
+  Button,
+  Chip,
+  CircularProgress,
+  Container,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Grid,
+  IconButton,
+  InputAdornment,
+  MenuItem,
+  Paper,
+  Stack,
+  Tab,
+  Tabs,
+  TextField,
+  Toolbar,
+  Tooltip,
+  Typography,
+} from '@mui/material';
+import { alpha } from '@mui/material/styles';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers';
+import dayjs from 'dayjs';
 import axios from 'axios';
+import {
+  CalendarDays,
+  ChevronDown,
+  Edit,
+  Eye,
+  Filter,
+  LayoutDashboard,
+  ListFilter,
+  Plus,
+  Search,
+  Trash2,
+  Users,
+} from 'lucide-react';
 
-const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api' });
-const today = new Date();
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+const api = axios.create({ baseURL: API_BASE });
 
-const fetcher = async (url) => (await api.get(url)).data;
+const statusColors = {
+  draft: 'default',
+  published: 'primary',
+  ongoing: 'success',
+  completed: 'secondary',
+  cancelled: 'error',
+};
 
-function useEvents(filters) {
-  const params = new URLSearchParams();
-  if (filters.q) params.set('search', filters.q);
-  if (filters.status !== 'all') params.set('status', filters.status);
-  if (filters.sort) params.set('ordering', filters.sort);
-  if (filters.start_date) params.set('start_date', filters.start_date);
-  if (filters.end_date) params.set('end_date', filters.end_date);
-  return useQuery({
-    queryKey: ['events', filters],
-    queryFn: () => fetcher(`/events/?${params.toString()}`),
-  });
+async function getDashboard() {
+  const { data } = await api.get('/dashboard/');
+  return data;
+}
+async function getEvents(params) {
+  const { data } = await api.get('/events/', { params });
+  return data;
+}
+async function getVenues() {
+  const { data } = await api.get('/venues/');
+  return data;
+}
+async function createEvent(payload) {
+  const { data } = await api.post('/events/', payload);
+  return data;
+}
+async function updateEvent({ id, payload }) {
+  const { data } = await api.patch(`/events/${id}/`, payload);
+  return data;
+}
+async function deleteEvent(id) {
+  await api.delete(`/events/${id}/`);
 }
 
-function StatCard({ label, value, icon, accent }) {
+function StatCard({ label, value, helper, icon }) {
   return (
-    <Card sx={{ height: '100%' }}>
-      <CardContent>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
-          <Box>
-            <Typography color="text.secondary" variant="body2">{label}</Typography>
-            <Typography variant="h5" sx={{ mt: 0.5, fontWeight: 800 }}>{value}</Typography>
-          </Box>
-          <AvatarIcon icon={icon} accent={accent} />
-        </Stack>
-      </CardContent>
-    </Card>
+    <Paper sx={{ p: 2.5, height: '100%' }} elevation={0} variant="outlined">
+      <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
+        <Box>
+          <Typography variant="body2" color="text.secondary">{label}</Typography>
+          <Typography variant="h4" sx={{ mt: 0.5 }}>{value}</Typography>
+          {helper ? <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{helper}</Typography> : null}
+        </Box>
+        <Avatar sx={{ bgcolor: (theme) => alpha(theme.palette.primary.main, 0.12), color: 'primary.main' }}>{icon}</Avatar>
+      </Stack>
+    </Paper>
   );
 }
 
-function AvatarIcon({ icon, accent }) {
-  return <Box sx={{ width: 48, height: 48, display: 'grid', placeItems: 'center', borderRadius: 3, bgcolor: `${accent}.50`, color: `${accent}.700` }}>{icon}</Box>;
-}
-
-function EventFormDialog({ open, onClose, event }) {
-  const queryClient = useQueryClient();
-  const [form, setForm] = useState(event || { title: '', description: '', start_date: '', end_date: '', venue: '', status: 'scheduled', capacity: 100 });
-
-  React.useEffect(() => { setForm(event || { title: '', description: '', start_date: '', end_date: '', venue: '', status: 'scheduled', capacity: 100 }); }, [event, open]);
-
-  const mutation = useMutation({
-    mutationFn: (payload) => event ? api.put(`/events/${event.id}/`, payload) : api.post('/events/', payload),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['events'] }); queryClient.invalidateQueries({ queryKey: ['dashboard'] }); onClose(); },
+function EventDialog({ open, onClose, event, venues, onSave, saving }) {
+  const [form, setForm] = useState(event || {
+    title: '',
+    description: '',
+    venue: '',
+    start_date: dayjs().add(1, 'day').format('YYYY-MM-DDTHH:mm'),
+    end_date: dayjs().add(1, 'day').add(2, 'hour').format('YYYY-MM-DDTHH:mm'),
+    status: 'draft',
+    capacity: 100,
   });
 
-  const submit = (e) => { e.preventDefault(); mutation.mutate(form); };
+  React.useEffect(() => {
+    setForm(event || {
+      title: '',
+      description: '',
+      venue: '',
+      start_date: dayjs().add(1, 'day').format('YYYY-MM-DDTHH:mm'),
+      end_date: dayjs().add(1, 'day').add(2, 'hour').format('YYYY-MM-DDTHH:mm'),
+      status: 'draft',
+      capacity: 100,
+    });
+  }, [event, open]);
+
+  const handleChange = (key) => (e) => setForm((prev) => ({ ...prev, [key]: e.target.value }));
+  const handleDate = (key) => (value) => setForm((prev) => ({ ...prev, [key]: value ? dayjs(value).format('YYYY-MM-DDTHH:mm') : '' }));
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
       <DialogTitle>{event ? 'Edit Event' : 'Create Event'}</DialogTitle>
-      <DialogContent>
-        <Box component="form" onSubmit={submit} sx={{ mt: 1, display: 'grid', gap: 2 }}>
-          <TextField label="Title" required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-          <TextField label="Description" multiline minRows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <TextField type="datetime-local" label="Start" InputLabelProps={{ shrink: true }} fullWidth required value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} />
-            <TextField type="datetime-local" label="End" InputLabelProps={{ shrink: true }} fullWidth required value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} />
-          </Stack>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <TextField label="Venue" fullWidth value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })} />
-            <TextField select label="Status" fullWidth value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-              {['scheduled', 'draft', 'cancelled', 'completed'].map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+      <DialogContent dividers>
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          <TextField label="Title" value={form.title} onChange={handleChange('title')} fullWidth required />
+          <TextField label="Description" value={form.description} onChange={handleChange('description')} fullWidth multiline minRows={3} />
+          <TextField select label="Venue" value={form.venue} onChange={handleChange('venue')} fullWidth>
+            {venues.map((v) => <MenuItem key={v.id} value={v.id}>{v.name}</MenuItem>)}
+          </TextField>
+          <LocalizationProvider dateAdapter={AdapterDayjs}>
+            <DatePicker label="Start date" value={dayjs(form.start_date)} onChange={handleDate('start_date')} />
+            <DatePicker label="End date" value={dayjs(form.end_date)} onChange={handleDate('end_date')} />
+          </LocalizationProvider>
+          <Stack direction="row" spacing={2}>
+            <TextField select label="Status" value={form.status} onChange={handleChange('status')} fullWidth>
+              {['draft', 'published', 'ongoing', 'completed', 'cancelled'].map((status) => (
+                <MenuItem key={status} value={status}>{status}</MenuItem>
+              ))}
             </TextField>
+            <TextField type="number" label="Capacity" value={form.capacity} onChange={handleChange('capacity')} fullWidth inputProps={{ min: 1 }} />
           </Stack>
-          <TextField type="number" label="Capacity" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: Number(e.target.value) })} />
-          {mutation.isError && <Alert severity="error">Unable to save event.</Alert>}
-          <Stack direction="row" justifyContent="flex-end" spacing={1}><Button onClick={onClose}>Cancel</Button><Button type="submit" variant="contained" disabled={mutation.isPending}>{mutation.isPending ? 'Saving…' : 'Save'}</Button></Stack>
-        </Box>
+        </Stack>
       </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={() => onSave(form)} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+      </DialogActions>
     </Dialog>
   );
 }
 
 export default function App() {
+  const qc = useQueryClient();
   const [tab, setTab] = useState(0);
-  const [filters, setFilters] = useState({ q: '', status: 'all', sort: '-start_date', start_date: '', end_date: '' });
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('');
+  const [sort, setSort] = useState('-start_date');
+  const [dateFrom, setDateFrom] = useState(null);
+  const [dateTo, setDateTo] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState(null);
 
-  const dashboard = useQuery({ queryKey: ['dashboard'], queryFn: () => fetcher('/dashboard/') });
-  const eventsQuery = useEvents(filters);
-  const deleteMutation = useMutation({ mutationFn: (id) => api.delete(`/events/${id}/`), onSuccess: () => { eventsQuery.refetch(); dashboard.refetch(); } });
+  const dashboardQ = useQuery({ queryKey: ['dashboard'], queryFn: getDashboard });
+  const venuesQ = useQuery({ queryKey: ['venues'], queryFn: getVenues });
+  const eventsQ = useQuery({
+    queryKey: ['events', { search, status, sort, dateFrom, dateTo }],
+    queryFn: () => getEvents({ search, status, ordering: sort, start_date_after: dateFrom ? dayjs(dateFrom).format('YYYY-MM-DD') : undefined, start_date_before: dateTo ? dayjs(dateTo).format('YYYY-MM-DD') : undefined, page_size: 100 }),
+  });
 
-  const events = eventsQuery.data?.results || eventsQuery.data || [];
-  const upcoming = useMemo(() => events.filter((e) => isAfter(parseISO(e.start_date), startOfDay(today))).slice(0, 5), [events]);
+  const saveMutation = useMutation({
+    mutationFn: async (form) => (editing ? updateEvent({ id: editing.id, payload: form }) : createEvent(form)),
+    onSuccess: async () => { await qc.invalidateQueries({ queryKey: ['events'] }); await qc.invalidateQueries({ queryKey: ['dashboard'] }); setDialogOpen(false); setEditing(null); },
+  });
+  const deleteMutation = useMutation({
+    mutationFn: deleteEvent,
+    onSuccess: async () => { await qc.invalidateQueries({ queryKey: ['events'] }); await qc.invalidateQueries({ queryKey: ['dashboard'] }); },
+  });
+
+  const events = eventsQ.data?.results ?? [];
+  const stats = dashboardQ.data?.stats ?? {};
+  const upcoming = useMemo(() => events.filter((e) => dayjs(e.start_date).isAfter(dayjs().subtract(1, 'day'))).slice(0, 6), [events]);
+
+  const handleSave = async (form) => saveMutation.mutateAsync({ ...form, venue: Number(form.venue), capacity: Number(form.capacity) });
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
-      <AppBar position="sticky" elevation={0} color="transparent" sx={{ backdropFilter: 'blur(12px)', borderBottom: 1, borderColor: 'divider' }}>
-        <Toolbar><EventIcon sx={{ mr: 1, color: 'primary.main' }} /><Typography variant="h6" sx={{ flexGrow: 1 }}>EventFlow</Typography><Button variant="contained" startIcon={<Add />} onClick={() => { setEditing(null); setDialogOpen(true); }}>New Event</Button></Toolbar>
+      <AppBar position="sticky" elevation={0} color="transparent" sx={{ backdropFilter: 'blur(12px)', borderBottom: '1px solid', borderColor: 'divider' }}>
+        <Toolbar>
+          <Stack direction="row" alignItems="center" spacing={1.5} sx={{ flexGrow: 1 }}>
+            <Avatar sx={{ bgcolor: 'primary.main' }}>E</Avatar>
+            <Box>
+              <Typography variant="h6">EventFlow</Typography>
+              <Typography variant="caption" color="text.secondary">Manage events, registrations, venues</Typography>
+            </Box>
+          </Stack>
+          <Button variant="contained" startIcon={<Plus size={18} />} onClick={() => { setEditing(null); setDialogOpen(true); }}>Create Event</Button>
+        </Toolbar>
       </AppBar>
-      <Container sx={{ py: 4 }}>
+
+      <Container maxWidth="xl" sx={{ py: 4 }}>
         <Stack spacing={3}>
-          <Box>
-            <Typography variant="h4">Event Management Dashboard</Typography>
-            <Typography color="text.secondary">Manage events, attendees, registrations, venues, and performance insights in one place.</Typography>
-          </Box>
-          <Grid container spacing={2}>
-            <Grid item xs={12} md={3}><StatCard label="Upcoming Events" value={dashboard.data?.upcoming_events ?? '—'} icon={<CalendarMonth />} accent="primary" /></Grid>
-            <Grid item xs={12} md={3}><StatCard label="Registrations" value={dashboard.data?.total_registrations ?? '—'} icon={<People />} accent="secondary" /></Grid>
-            <Grid item xs={12} md={3}><StatCard label="Active Events" value={dashboard.data?.active_events ?? '—'} icon={<Dashboard />} accent="primary" /></Grid>
-            <Grid item xs={12} md={3}><StatCard label="Venues" value={dashboard.data?.venues ?? '—'} icon={<EventIcon />} accent="secondary" /></Grid>
+          <Stack direction={{ xs: 'column', md: 'row' }} alignItems={{ xs: 'stretch', md: 'center' }} justifyContent="space-between" spacing={2}>
+            <Box>
+              <Typography variant="h4">Dashboard</Typography>
+              <Typography color="text.secondary">Track upcoming events, registrations, and venue operations.</Typography>
+            </Box>
+            <Stack direction="row" spacing={1}>
+              <Chip icon={<LayoutDashboard size={16} />} label={`${stats.upcoming_events ?? 0} upcoming`} />
+              <Chip icon={<Users size={16} />} label={`${stats.total_registrations ?? 0} registrations`} />
+              <Chip icon={<CalendarDays size={16} />} label={`${stats.total_events ?? 0} events`} />
+            </Stack>
+          </Stack>
+
+          {dashboardQ.isLoading ? <CircularProgress /> : dashboardQ.isError ? <Alert severity="error">Failed to load dashboard.</Alert> : null}
+
+          <Grid container spacing={2.5}>
+            <Grid item xs={12} md={3}><StatCard label="Upcoming Events" value={stats.upcoming_events ?? 0} helper="Next 30 days" icon={<CalendarDays size={18} />} /></Grid>
+            <Grid item xs={12} md={3}><StatCard label="Registrations" value={stats.total_registrations ?? 0} helper="Across all events" icon={<Users size={18} />} /></Grid>
+            <Grid item xs={12} md={3}><StatCard label="Venues" value={stats.total_venues ?? 0} helper="Managed locations" icon={<Filter size={18} />} /></Grid>
+            <Grid item xs={12} md={3}><StatCard label="Capacity Used" value={`${stats.capacity_utilization ?? 0}%`} helper="Average occupancy" icon={<Eye size={18} />} /></Grid>
           </Grid>
-          <Paper sx={{ p: 2 }}>
+
+          <Paper elevation={0} variant="outlined" sx={{ p: 2.5 }}>
             <Stack spacing={2}>
-              <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
-                <TextField fullWidth placeholder="Search events" value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} InputProps={{ startAdornment: <Search sx={{ mr: 1, color: 'text.secondary' }} /> }} />
-                <TextField select label="Status" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} sx={{ minWidth: 160 }}>{['all', 'draft', 'scheduled', 'cancelled', 'completed'].map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}</TextField>
-                <TextField select label="Sort" value={filters.sort} onChange={(e) => setFilters({ ...filters, sort: e.target.value })} sx={{ minWidth: 180 }}>{[{k:'-start_date',l:'Newest first'},{k:'start_date',l:'Oldest first'},{k:'title',l:'Title A-Z'}].map((s) => <MenuItem key={s.k} value={s.k}>{s.l}</MenuItem>)}</TextField>
-                <Button variant="outlined" startIcon={<Refresh />} onClick={() => eventsQuery.refetch()}>Refresh</Button>
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+                <TextField fullWidth placeholder="Search events…" value={search} onChange={(e) => setSearch(e.target.value)} InputProps={{ startAdornment: <InputAdornment position="start"><Search size={18} /></InputAdornment> }} />
+                <TextField select label="Status" value={status} onChange={(e) => setStatus(e.target.value)} sx={{ minWidth: 180 }}>
+                  <MenuItem value="">All statuses</MenuItem>
+                  {Object.keys(statusColors).map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                </TextField>
+                <TextField select label="Sort" value={sort} onChange={(e) => setSort(e.target.value)} sx={{ minWidth: 220 }}>
+                  <MenuItem value="-start_date">Newest first</MenuItem>
+                  <MenuItem value="start_date">Oldest first</MenuItem>
+                  <MenuItem value="title">Title A-Z</MenuItem>
+                  <MenuItem value="-title">Title Z-A</MenuItem>
+                </TextField>
               </Stack>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                <TextField type="date" label="Start date" InputLabelProps={{ shrink: true }} value={filters.start_date} onChange={(e) => setFilters({ ...filters, start_date: e.target.value })} />
-                <TextField type="date" label="End date" InputLabelProps={{ shrink: true }} value={filters.end_date} onChange={(e) => setFilters({ ...filters, end_date: e.target.value })} />
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+                <LocalizationProvider dateAdapter={AdapterDayjs}>
+                  <DatePicker label="From" value={dateFrom} onChange={setDateFrom} slotProps={{ textField: { fullWidth: true } }} />
+                  <DatePicker label="To" value={dateTo} onChange={setDateTo} slotProps={{ textField: { fullWidth: true } }} />
+                </LocalizationProvider>
+                <Button variant="outlined" startIcon={<ListFilter size={18} />} onClick={() => { setSearch(''); setStatus(''); setSort('-start_date'); setDateFrom(null); setDateTo(null); }}>Reset Filters</Button>
               </Stack>
             </Stack>
           </Paper>
-          <Tabs value={tab} onChange={(_, v) => setTab(v)}><Tab label="Events" /><Tab label="Calendar" /><Tab label="Insights" /></Tabs>
-          {eventsQuery.isLoading ? <Box sx={{ display: 'grid', placeItems: 'center', py: 8 }}><CircularProgress /></Box> : eventsQuery.isError ? <Alert severity="error">Failed to load events. Please check the backend API.</Alert> : null}
-          {tab === 0 && (
-            <Paper>
-              {events.length === 0 ? <Box sx={{ p: 4, textAlign: 'center' }}><Typography variant="h6">No events found</Typography><Typography color="text.secondary">Try adjusting filters or create a new event.</Typography></Box> : <Table><TableHead><TableRow><TableCell>Event</TableCell><TableCell>Dates</TableCell><TableCell>Status</TableCell><TableCell align="right">Actions</TableCell></TableRow></TableHead><TableBody>{events.map((event) => <TableRow key={event.id}><TableCell><Typography fontWeight={700}>{event.title}</Typography><Typography variant="body2" color="text.secondary">{event.venue_name || event.venue || 'No venue'}</Typography></TableCell><TableCell>{format(parseISO(event.start_date), 'PP p')} — {format(parseISO(event.end_date), 'PP p')}</TableCell><TableCell><Chip label={event.status} size="small" /></TableCell><TableCell align="right"><IconButton onClick={() => { setEditing(event); setDialogOpen(true); }}><Edit /></IconButton><IconButton color="error" onClick={() => deleteMutation.mutate(event.id)}><Delete /></IconButton></TableCell></TableRow>)}</TableBody></Table>}
-            </Paper>
+
+          <Tabs value={tab} onChange={(_, v) => setTab(v)}>
+            <Tab label="Events" />
+            <Tab label="Upcoming" />
+          </Tabs>
+
+          {eventsQ.isLoading ? <CircularProgress /> : eventsQ.isError ? <Alert severity="error">Failed to load events.</Alert> : null}
+
+          {tab === 0 ? (
+            <Grid container spacing={2.5}>
+              {events.length === 0 ? <Grid item xs={12}><Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>No events found.</Paper></Grid> : events.map((event) => (
+                <Grid item xs={12} md={6} lg={4} key={event.id}>
+                  <Paper variant="outlined" sx={{ p: 2.5, height: '100%' }}>
+                    <Stack spacing={1.5}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="start" spacing={2}>
+                        <Box>
+                          <Typography variant="h6">{event.title}</Typography>
+                          <Typography variant="body2" color="text.secondary">{event.venue_name}</Typography>
+                        </Box>
+                        <Chip size="small" label={event.status} color={statusColors[event.status] || 'default'} />
+                      </Stack>
+                      <Typography variant="body2" sx={{ minHeight: 42 }}>{event.description || 'No description provided.'}</Typography>
+                      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                        <Chip label={dayjs(event.start_date).format('MMM D, YYYY h:mm A')} />
+                        <Chip label={`Capacity ${event.capacity}`} />
+                        <Chip label={`${event.registration_count ?? 0} regs`} />
+                      </Stack>
+                      <Stack direction="row" spacing={1} justifyContent="flex-end">
+                        <Tooltip title="Edit"><IconButton onClick={() => { setEditing(event); setDialogOpen(true); }}><Edit size={18} /></IconButton></Tooltip>
+                        <Tooltip title="Delete"><IconButton color="error" onClick={() => deleteMutation.mutate(event.id)}><Trash2 size={18} /></IconButton></Tooltip>
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                </Grid>
+              ))}
+            </Grid>
+          ) : (
+            <Grid container spacing={2.5}>
+              {upcoming.map((event) => (
+                <Grid item xs={12} md={6} key={event.id}>
+                  <Paper variant="outlined" sx={{ p: 2.5 }}>
+                    <Stack direction="row" justifyContent="space-between" spacing={2}>
+                      <Box>
+                        <Typography variant="h6">{event.title}</Typography>
+                        <Typography variant="body2" color="text.secondary">{dayjs(event.start_date).format('dddd, MMM D • h:mm A')}</Typography>
+                      </Box>
+                      <Button size="small" variant="outlined">Details</Button>
+                    </Stack>
+                  </Paper>
+                </Grid>
+              ))}
+            </Grid>
           )}
-          {tab === 1 && <Paper sx={{ p: 3 }}><Typography variant="h6">Calendar View</Typography><Divider sx={{ my: 2 }} />{upcoming.map((event) => <Box key={event.id} sx={{ py: 1.5, borderBottom: 1, borderColor: 'divider' }}><Stack direction="row" justifyContent="space-between"><Box><Typography fontWeight={700}>{event.title}</Typography><Typography variant="body2" color="text.secondary">{format(parseISO(event.start_date), 'PP p')}</Typography></Box><Chip label={event.status} size="small" /></Stack></Box>)}{upcoming.length === 0 && <Typography color="text.secondary">No upcoming events.</Typography>}</Paper>}
-          {tab === 2 && <Paper sx={{ p: 3 }}><Typography variant="h6">Statistics</Typography><Divider sx={{ my: 2 }} /><Grid container spacing={2}><Grid item xs={12} md={6}><Card><CardContent><Typography fontWeight={700}>Registrations by status</Typography><Box sx={{ mt: 2, display: 'grid', gap: 1 }}>{(dashboard.data?.registration_status_breakdown || []).map((item) => <Box key={item.status} sx={{ display: 'flex', justifyContent: 'space-between' }}><span>{item.status}</span><strong>{item.count}</strong></Box>)}</Box></CardContent></Card></Grid><Grid item xs={12} md={6}><Card><CardContent><Typography fontWeight={700}>Recent activity</Typography><Box sx={{ mt: 2, display: 'grid', gap: 1 }}>{(dashboard.data?.recent_events || []).map((item) => <Box key={item.id}><Typography fontWeight={600}>{item.title}</Typography><Typography variant="body2" color="text.secondary">{format(parseISO(item.start_date), 'PP')}</Typography></Box>)}</Box></CardContent></Card></Grid></Grid></Paper>}
         </Stack>
       </Container>
-      <EventFormDialog open={dialogOpen} onClose={() => setDialogOpen(false)} event={editing} />
+
+      <EventDialog
+        open={dialogOpen}
+        onClose={() => { setDialogOpen(false); setEditing(null); }}
+        event={editing}
+        venues={venuesQ.data || []}
+        onSave={handleSave}
+        saving={saveMutation.isPending}
+      />
     </Box>
   );
 }
