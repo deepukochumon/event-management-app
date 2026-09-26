@@ -7,4 +7,6 @@ urlpatterns = [
     path('api/auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/', include('apps.core.urls')),
+    path('api/users/', include('apps.users.urls')),
+    path('api/', include('apps.events.urls')),
 ]
