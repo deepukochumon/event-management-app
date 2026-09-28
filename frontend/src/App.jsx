@@ -1,78 +1,69 @@
 import React, { useMemo, useState } from 'react';
 import {
   AppBar,
+  Box,
+  Button,
+  Container,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Drawer,
+  Grid,
+  IconButton,
+  List,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  MenuItem,
+  Paper,
+  Stack,
+  TextField,
   Toolbar,
   Typography,
-  Box,
-  Container,
-  Grid,
+  Alert,
+  CircularProgress,
+  Chip,
   Card,
   CardContent,
-  Stack,
-  Chip,
-  Button,
-  TextField,
-  InputAdornment,
-  MenuItem,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  IconButton,
-  Tabs,
-  Tab,
-  Alert,
-  Skeleton,
   Divider,
-  Tooltip,
-  CircularProgress,
+  FormControl,
+  InputLabel,
+  Select,
+  Skeleton,
 } from '@mui/material';
-import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers';
-import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import dayjs from 'dayjs';
-import axios from 'axios';
 import {
-  CalendarDays,
+  Add,
+  CalendarMonth,
+  Dashboard,
+  Event,
+  Group,
+  LocationOn,
   Search,
-  Plus,
-  Users,
-  MapPin,
-  Clock3,
-  Trash2,
-  Pencil,
-  BarChart3,
-  CalendarRange,
-  BadgeCheck,
-} from 'lucide-react';
+  Tune,
+  Delete,
+  Edit,
+  Refresh,
+} from '@mui/icons-material';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { format, parseISO, isAfter, startOfDay } from 'date-fns';
+import axios from 'axios';
 
-const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api' });
+const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/api' });
 
-async function getJSON(url, params) {
-  const { data } = await api.get(url, { params });
-  return data;
-}
+const fetcher = async (url) => (await api.get(url)).data;
 
-const statusColor = (status) => {
-  const s = String(status || '').toLowerCase();
-  if (s === 'completed') return 'success';
-  if (s === 'cancelled') return 'error';
-  if (s === 'draft') return 'default';
-  return 'primary';
-};
-
-function Metric({ title, value, helper, icon, color = 'primary' }) {
+function StatCard({ label, value, icon, color = 'primary' }) {
   return (
-    <Card>
+    <Card sx={{ height: '100%' }}>
       <CardContent>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
-          <Box>
-            <Typography variant="body2" color="text.secondary">{title}</Typography>
-            <Typography variant="h4" sx={{ mt: 0.5 }}>{value}</Typography>
-            {helper ? <Typography variant="caption" color="text.secondary">{helper}</Typography> : null}
-          </Box>
-          <Box sx={{ width: 52, height: 52, borderRadius: 3, display: 'grid', placeItems: 'center', bgcolor: `${color}.light`, color: `${color}.main` }}>
+        <Stack direction="row" spacing={2} alignItems="center">
+          <Box sx={{ width: 48, height: 48, borderRadius: 3, bgcolor: `${color}.soft`, display: 'grid', placeItems: 'center' }}>
             {icon}
+          </Box>
+          <Box>
+            <Typography variant="body2" color="text.secondary">{label}</Typography>
+            <Typography variant="h5">{value}</Typography>
           </Box>
         </Stack>
       </CardContent>
@@ -80,230 +71,134 @@ function Metric({ title, value, helper, icon, color = 'primary' }) {
   );
 }
 
-function EventFormDialog({ open, onClose, initialValues, onSubmit, loading }) {
-  const [values, setValues] = useState(initialValues);
-  React.useEffect(() => setValues(initialValues), [initialValues, open]);
-  const setField = (name) => (e) => setValues((v) => ({ ...v, [name]: e.target.value }));
-  const submit = () => onSubmit({ ...values, capacity: Number(values.capacity || 0) });
+function EventDialog({ open, onClose, initialValue, onSubmit, venues = [], loading = false }) {
+  const [form, setForm] = useState(initialValue || {
+    title: '', description: '', venue: '', start_date: '', end_date: '', status: 'scheduled', capacity: 100,
+  });
+  React.useEffect(() => { setForm(initialValue || { title: '', description: '', venue: '', start_date: '', end_date: '', status: 'scheduled', capacity: 100 }); }, [initialValue, open]);
+  const update = (k, v) => setForm((p) => ({ ...p, [k]: v }));
   return (
-    <Dialog open={open} onClose={loading ? undefined : onClose} fullWidth maxWidth="sm">
-      <DialogTitle>{values.id ? 'Edit Event' : 'Create Event'}</DialogTitle>
-      <DialogContent dividers>
-        <Stack spacing={2} sx={{ pt: 1 }}>
-          <TextField label="Title" value={values.title} onChange={setField('title')} fullWidth required />
-          <TextField label="Description" value={values.description} onChange={setField('description')} fullWidth multiline minRows={3} />
-          <TextField label="Venue ID" value={values.venue} onChange={setField('venue')} fullWidth helperText="Enter venue identifier from the API" />
-          <TextField label="Start Date" type="date" value={values.start_date} onChange={setField('start_date')} fullWidth InputLabelProps={{ shrink: true }} />
-          <TextField label="End Date" type="date" value={values.end_date} onChange={setField('end_date')} fullWidth InputLabelProps={{ shrink: true }} />
-          <TextField label="Capacity" type="number" value={values.capacity} onChange={setField('capacity')} fullWidth />
-          <TextField select label="Status" value={values.status} onChange={setField('status')} fullWidth>
-            {['draft', 'published', 'completed', 'cancelled'].map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle>{initialValue?.id ? 'Edit Event' : 'Create Event'}</DialogTitle>
+      <DialogContent sx={{ pt: 1 }}>
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          <TextField label="Title" value={form.title} onChange={(e) => update('title', e.target.value)} fullWidth required />
+          <TextField label="Description" value={form.description} onChange={(e) => update('description', e.target.value)} fullWidth multiline minRows={3} />
+          <TextField select label="Venue" value={form.venue} onChange={(e) => update('venue', e.target.value)} fullWidth>
+            {venues.map((v) => <MenuItem key={v.id} value={v.id}>{v.name}</MenuItem>)}
           </TextField>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <TextField label="Start" type="datetime-local" value={form.start_date} onChange={(e) => update('start_date', e.target.value)} fullWidth InputLabelProps={{ shrink: true }} />
+            <TextField label="End" type="datetime-local" value={form.end_date} onChange={(e) => update('end_date', e.target.value)} fullWidth InputLabelProps={{ shrink: true }} />
+          </Stack>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <FormControl fullWidth><InputLabel>Status</InputLabel><Select label="Status" value={form.status} onChange={(e) => update('status', e.target.value)}><MenuItem value="scheduled">Scheduled</MenuItem><MenuItem value="draft">Draft</MenuItem><MenuItem value="cancelled">Cancelled</MenuItem><MenuItem value="completed">Completed</MenuItem></Select></FormControl>
+            <TextField label="Capacity" type="number" value={form.capacity} onChange={(e) => update('capacity', e.target.value)} fullWidth />
+          </Stack>
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={loading}>Cancel</Button>
-        <Button onClick={submit} variant="contained" disabled={loading}>{loading ? 'Saving…' : 'Save'}</Button>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={() => onSubmit(form)} disabled={loading}>{loading ? 'Saving...' : 'Save'}</Button>
       </DialogActions>
     </Dialog>
   );
 }
 
+function DashboardView({ events, registrations, venues }) {
+  const upcoming = useMemo(() => events.filter((e) => isAfter(parseISO(e.start_date), startOfDay(new Date()))).slice(0, 5), [events]);
+  const stats = useMemo(() => {
+    const total = events.length;
+    const upcomingCount = events.filter((e) => isAfter(parseISO(e.start_date), startOfDay(new Date()))).length;
+    const registered = registrations.reduce((sum, r) => sum + (r.count || 1), 0);
+    return { total, upcomingCount, registered, venues: venues.length };
+  }, [events, registrations, venues]);
+  return (
+    <Stack spacing={3}>
+      <Grid container spacing={2}>
+        <Grid item xs={12} sm={6} md={3}><StatCard label="Total Events" value={stats.total} icon={<Event />} /></Grid>
+        <Grid item xs={12} sm={6} md={3}><StatCard label="Upcoming" value={stats.upcomingCount} icon={<CalendarMonth />} color="secondary" /></Grid>
+        <Grid item xs={12} sm={6} md={3}><StatCard label="Registrations" value={stats.registered} icon={<Group />} /></Grid>
+        <Grid item xs={12} sm={6} md={3}><StatCard label="Venues" value={stats.venues} icon={<LocationOn />} /></Grid>
+      </Grid>
+      <Paper sx={{ p: 3 }}>
+        <Typography variant="h6" gutterBottom>Upcoming Events</Typography>
+        <Stack spacing={1.5}>{upcoming.map((e) => <Box key={e.id}><Typography fontWeight={700}>{e.title}</Typography><Typography variant="body2" color="text.secondary">{format(parseISO(e.start_date), 'PPp')} • {e.venue_name}</Typography><Divider sx={{ mt: 1 }} /></Box>)}</Stack>
+      </Paper>
+    </Stack>
+  );
+}
+
 export default function App() {
-  const queryClient = useQueryClient();
-  const [tab, setTab] = useState(0);
+  const qc = useQueryClient();
+  const [page, setPage] = useState('dashboard');
   const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState('all');
   const [sort, setSort] = useState('-start_date');
-  const [fromDate, setFromDate] = useState(null);
-  const [toDate, setToDate] = useState(null);
-  const [selectedId, setSelectedId] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState(null);
 
-  const params = useMemo(() => ({
-    search: search || undefined,
-    status: status || undefined,
-    ordering: sort,
-    start_date_after: fromDate ? fromDate.format('YYYY-MM-DD') : undefined,
-    start_date_before: toDate ? toDate.format('YYYY-MM-DD') : undefined,
-    page_size: 24,
-  }), [search, status, sort, fromDate, toDate]);
+  const { data: events = [], isLoading: eventsLoading, error: eventsError } = useQuery({ queryKey: ['events', search, status, sort], queryFn: () => fetcher(`/events/?search=${encodeURIComponent(search)}&status=${status}&ordering=${sort}`) });
+  const { data: venues = [] } = useQuery({ queryKey: ['venues'], queryFn: () => fetcher('/venues/') });
+  const { data: registrations = [] } = useQuery({ queryKey: ['registrations'], queryFn: () => fetcher('/registrations/') });
+  const { data: dashboard } = useQuery({ queryKey: ['dashboard'], queryFn: () => fetcher('/dashboard/summary/') });
 
-  const eventsQuery = useQuery({ queryKey: ['events', params], queryFn: () => getJSON('/events/', params) });
-  const dashboardQuery = useQuery({ queryKey: ['dashboard'], queryFn: () => getJSON('/dashboard/') });
-  const selectedEventQuery = useQuery({ queryKey: ['event', selectedId], queryFn: () => getJSON(`/events/${selectedId}/`), enabled: !!selectedId });
-  const statsQuery = useQuery({ queryKey: ['stats'], queryFn: () => getJSON('/statistics/') });
+  const createMut = useMutation({ mutationFn: (payload) => api.post('/events/', payload), onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); setDialogOpen(false); } });
+  const updateMut = useMutation({ mutationFn: ({ id, payload }) => api.put(`/events/${id}/`, payload), onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); setEditing(null); } });
+  const deleteMut = useMutation({ mutationFn: (id) => api.delete(`/events/${id}/`), onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); } });
 
-  const createMutation = useMutation({
-    mutationFn: (payload) => api.post('/events/', payload),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['events'] }); queryClient.invalidateQueries({ queryKey: ['dashboard'] }); setDialogOpen(false); },
-  });
-  const updateMutation = useMutation({
-    mutationFn: ({ id, ...payload }) => api.put(`/events/${id}/`, payload),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['events'] }); queryClient.invalidateQueries({ queryKey: ['dashboard'] }); setDialogOpen(false); setEditing(null); },
-  });
-  const deleteMutation = useMutation({
-    mutationFn: (id) => api.delete(`/events/${id}/`),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['events'] }); queryClient.invalidateQueries({ queryKey: ['dashboard'] }); if (selectedId) setSelectedId(null); },
-  });
+  const submitEvent = (payload) => {
+    const body = { ...payload, venue: payload.venue || null };
+    if (editing?.id) updateMut.mutate({ id: editing.id, payload: body }); else createMut.mutate(body);
+  };
 
-  const openCreate = () => { setEditing({ title: '', description: '', venue: '', start_date: dayjs().add(1, 'day').format('YYYY-MM-DD'), end_date: dayjs().add(1, 'day').format('YYYY-MM-DD'), capacity: 100, status: 'draft' }); setDialogOpen(true); };
-  const openEdit = (event) => { setEditing({ id: event.id, title: event.title, description: event.description || '', venue: event.venue?.id || event.venue || '', start_date: dayjs(event.start_date).format('YYYY-MM-DD'), end_date: dayjs(event.end_date).format('YYYY-MM-DD'), capacity: event.capacity, status: event.status }); setDialogOpen(true); };
-  const submit = (payload) => { if (payload.id) updateMutation.mutate(payload); else createMutation.mutate(payload); };
-
-  const events = eventsQuery.data?.results || eventsQuery.data || [];
-  const dashboard = dashboardQuery.data || {};
-  const selected = selectedEventQuery.data;
+  const body = page === 'dashboard' ? (
+    <DashboardView events={dashboard?.recent_events || events} registrations={dashboard?.registrations || registrations} venues={venues} />
+  ) : (
+    <Stack spacing={2}>
+      <Paper sx={{ p: 2 }}>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
+          <TextField value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search events" fullWidth InputProps={{ startAdornment: <Search sx={{ mr: 1, color: 'text.secondary' }} /> }} />
+          <FormControl sx={{ minWidth: 160 }}><InputLabel>Status</InputLabel><Select value={status} label="Status" onChange={(e) => setStatus(e.target.value)}><MenuItem value="all">All</MenuItem><MenuItem value="scheduled">Scheduled</MenuItem><MenuItem value="draft">Draft</MenuItem><MenuItem value="cancelled">Cancelled</MenuItem><MenuItem value="completed">Completed</MenuItem></Select></FormControl>
+          <FormControl sx={{ minWidth: 180 }}><InputLabel>Sort</InputLabel><Select value={sort} label="Sort" onChange={(e) => setSort(e.target.value)}><MenuItem value="-start_date">Newest</MenuItem><MenuItem value="start_date">Oldest</MenuItem><MenuItem value="title">Title A-Z</MenuItem><MenuItem value="-capacity">Capacity High-Low</MenuItem></Select></FormControl>
+          <Button variant="contained" startIcon={<Add />} onClick={() => { setEditing(null); setDialogOpen(true); }}>New Event</Button>
+        </Stack>
+      </Paper>
+      {eventsLoading ? <Grid container spacing={2}>{Array.from({ length: 6 }).map((_, i) => <Grid item xs={12} md={6} key={i}><Skeleton variant="rounded" height={140} /></Grid>)}</Grid> : eventsError ? <Alert severity="error">Failed to load events.</Alert> : events.length === 0 ? <Paper sx={{ p: 4, textAlign: 'center' }}><Typography variant="h6">No events found</Typography><Typography color="text.secondary">Try adjusting your search or filters.</Typography></Paper> : <Grid container spacing={2}>{events.map((event) => <Grid item xs={12} md={6} key={event.id}><Card><CardContent><Stack direction="row" justifyContent="space-between" gap={2}><Box><Typography variant="h6">{event.title}</Typography><Typography variant="body2" color="text.secondary">{format(parseISO(event.start_date), 'PPp')} • {event.venue_name || 'TBD'}</Typography><Typography variant="body2" sx={{ mt: 1 }}>{event.description}</Typography><Stack direction="row" spacing={1} sx={{ mt: 2 }}><Chip size="small" label={event.status} /><Chip size="small" label={`Capacity ${event.capacity}`} /></Stack></Box><Stack direction="row" spacing={1}><IconButton onClick={() => { setEditing(event); setDialogOpen(true); }}><Edit /></IconButton><IconButton onClick={() => deleteMut.mutate(event.id)} color="error"><Delete /></IconButton></Stack></Stack></CardContent></Card></Grid>)}</Grid>}
+    </Stack>
+  );
 
   return (
-    <LocalizationProvider dateAdapter={AdapterDayjs}>
-      <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
-        <AppBar position="sticky" color="transparent" elevation={0} sx={{ backdropFilter: 'blur(14px)', bgcolor: 'rgba(246,247,251,0.85)', borderBottom: '1px solid rgba(15,23,42,0.06)' }}>
-          <Toolbar>
-            <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexGrow: 1 }}>
-              <Box sx={{ width: 40, height: 40, borderRadius: 2, display: 'grid', placeItems: 'center', bgcolor: 'primary.main', color: 'white' }}><CalendarDays size={20} /></Box>
+    <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
+      <AppBar position="sticky" elevation={0} sx={{ borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(12px)' }}>
+        <Toolbar>
+          <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 800 }}>EventFlow</Typography>
+          <Button color="inherit" onClick={() => qc.invalidateQueries() } startIcon={<Refresh />}>Refresh</Button>
+          <Button variant="contained" onClick={() => { setEditing(null); setDialogOpen(true); }} startIcon={<Add />}>Add Event</Button>
+        </Toolbar>
+      </AppBar>
+      <Container maxWidth="xl" sx={{ py: 3 }}>
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={2.4}>
+            <Paper sx={{ p: 1 }}>
+              <List>
+                {[{ key: 'dashboard', label: 'Dashboard', icon: <Dashboard /> }, { key: 'events', label: 'Events', icon: <Event /> }, { key: 'calendar', label: 'Calendar', icon: <CalendarMonth /> }].map((item) => <ListItemButton key={item.key} selected={page === item.key} onClick={() => setPage(item.key)}><ListItemIcon>{item.icon}</ListItemIcon><ListItemText primary={item.label} /></ListItemButton>)}
+              </List>
+            </Paper>
+          </Grid>
+          <Grid item xs={12} md={9.6}>
+            <Stack spacing={2}>
               <Box>
-                <Typography variant="h6">EventFlow</Typography>
-                <Typography variant="caption" color="text.secondary">Management dashboard</Typography>
+                <Typography variant="h4" gutterBottom>{page === 'dashboard' ? 'Dashboard' : page === 'events' ? 'Event Management' : 'Calendar View'}</Typography>
+                <Typography color="text.secondary">Manage events, venues, attendees, and registrations from one place.</Typography>
               </Box>
+              {page === 'calendar' ? <Paper sx={{ p: 3 }}><Typography variant="h6" gutterBottom>Calendar</Typography><Typography color="text.secondary">A simple calendar summary of upcoming events.</Typography><Stack spacing={1.5} sx={{ mt: 2 }}>{events.slice(0, 10).map((e) => <Box key={e.id}><Typography fontWeight={700}>{format(parseISO(e.start_date), 'MMM d, yyyy')}</Typography><Typography>{e.title}</Typography></Box>)}</Stack></Paper> : body}
             </Stack>
-            <Button startIcon={<Plus size={16} />} variant="contained" onClick={openCreate}>New Event</Button>
-          </Toolbar>
-        </AppBar>
-
-        <Container sx={{ py: 3 }}>
-          <Grid container spacing={2} sx={{ mb: 1 }}>
-            <Grid item xs={12} md={3}><Metric title="Upcoming events" value={dashboard.upcoming_events ?? '—'} helper="Next 30 days" icon={<CalendarRange size={24} />} /></Grid>
-            <Grid item xs={12} md={3}><Metric title="Registrations" value={dashboard.total_registrations ?? '—'} helper="All active registrations" icon={<Users size={24} />} color="secondary" /></Grid>
-            <Grid item xs={12} md={3}><Metric title="Venues" value={dashboard.total_venues ?? '—'} helper="Configured locations" icon={<MapPin size={24} />} color="success" /></Grid>
-            <Grid item xs={12} md={3}><Metric title="Attendance rate" value={`${dashboard.attendance_rate ?? 0}%`} helper="Completion metric" icon={<BadgeCheck size={24} />} color="warning" /></Grid>
           </Grid>
-
-          <Grid container spacing={2}>
-            <Grid item xs={12} md={8}>
-              <Card sx={{ mb: 2 }}>
-                <CardContent>
-                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
-                    <TextField value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search events" fullWidth InputProps={{ startAdornment: <InputAdornment position="start"><Search size={16} /></InputAdornment> }} />
-                    <TextField select label="Status" value={status} onChange={(e) => setStatus(e.target.value)} sx={{ minWidth: 150 }}>
-                      <MenuItem value="">All</MenuItem>
-                      {['draft', 'published', 'completed', 'cancelled'].map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
-                    </TextField>
-                    <TextField select label="Sort" value={sort} onChange={(e) => setSort(e.target.value)} sx={{ minWidth: 180 }}>
-                      <MenuItem value="-start_date">Newest first</MenuItem>
-                      <MenuItem value="start_date">Oldest first</MenuItem>
-                      <MenuItem value="title">Title A-Z</MenuItem>
-                      <MenuItem value="-capacity">Capacity high-low</MenuItem>
-                    </TextField>
-                  </Stack>
-                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mt: 2 }}>
-                    <DatePicker label="From" value={fromDate} onChange={setFromDate} slotProps={{ textField: { fullWidth: true } }} />
-                    <DatePicker label="To" value={toDate} onChange={setToDate} slotProps={{ textField: { fullWidth: true } }} />
-                  </Stack>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent>
-                  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                    <Typography variant="h6">Events</Typography>
-                    {eventsQuery.isFetching ? <CircularProgress size={18} /> : null}
-                  </Stack>
-                  {eventsQuery.isError ? <Alert severity="error">Failed to load events.</Alert> : null}
-                  {eventsQuery.isLoading ? (
-                    <Stack spacing={1.5}>{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} variant="rounded" height={92} />)}</Stack>
-                  ) : events.length === 0 ? (
-                    <Alert severity="info">No events match your filters.</Alert>
-                  ) : (
-                    <Stack spacing={1.5}>
-                      {events.map((event) => (
-                        <Card key={event.id} variant="outlined" sx={{ cursor: 'pointer', borderColor: selectedId === event.id ? 'primary.main' : 'divider' }} onClick={() => setSelectedId(event.id)}>
-                          <CardContent>
-                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="space-between">
-                              <Box sx={{ flex: 1 }}>
-                                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
-                                  <Typography variant="h6">{event.title}</Typography>
-                                  <Chip size="small" label={event.status} color={statusColor(event.status)} />
-                                </Stack>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>{event.description || 'No description provided.'}</Typography>
-                                <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
-                                  <Typography variant="caption" color="text.secondary"><Clock3 size={14} style={{ verticalAlign: 'middle' }} /> {dayjs(event.start_date).format('MMM D, YYYY')}</Typography>
-                                  <Typography variant="caption" color="text.secondary"><MapPin size={14} style={{ verticalAlign: 'middle' }} /> {event.venue_name || event.venue?.name || 'Venue TBD'}</Typography>
-                                  <Typography variant="caption" color="text.secondary"><Users size={14} style={{ verticalAlign: 'middle' }} /> {event.registration_count ?? 0} registrations</Typography>
-                                </Stack>
-                              </Box>
-                              <Stack direction="row" spacing={1} alignItems="center">
-                                <Tooltip title="Edit"><IconButton onClick={(e) => { e.stopPropagation(); openEdit(event); }}><Pencil size={16} /></IconButton></Tooltip>
-                                <Tooltip title="Delete"><IconButton color="error" onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(event.id); }}><Trash2 size={16} /></IconButton></Tooltip>
-                              </Stack>
-                            </Stack>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </Stack>
-                  )}
-                </CardContent>
-              </Card>
-            </Grid>
-
-            <Grid item xs={12} md={4}>
-              <Card sx={{ mb: 2 }}>
-                <CardContent>
-                  <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="fullWidth">
-                    <Tab label="Details" />
-                    <Tab label="Stats" />
-                  </Tabs>
-                  <Divider sx={{ my: 2 }} />
-                  {tab === 0 ? (
-                    selected ? (
-                      <Stack spacing={1.2}>
-                        <Typography variant="h6">{selected.title}</Typography>
-                        <Typography variant="body2" color="text.secondary">{selected.description || 'No description.'}</Typography>
-                        <Chip label={selected.status} color={statusColor(selected.status)} sx={{ width: 'fit-content' }} />
-                        <Typography variant="body2"><strong>Venue:</strong> {selected.venue_name || selected.venue?.name || '—'}</Typography>
-                        <Typography variant="body2"><strong>Start:</strong> {dayjs(selected.start_date).format('MMM D, YYYY')}</Typography>
-                        <Typography variant="body2"><strong>End:</strong> {dayjs(selected.end_date).format('MMM D, YYYY')}</Typography>
-                        <Typography variant="body2"><strong>Capacity:</strong> {selected.capacity}</Typography>
-                        <Typography variant="body2"><strong>Registrations:</strong> {selected.registration_count ?? 0}</Typography>
-                      </Stack>
-                    ) : <Alert severity="info">Select an event to view details and registrations.</Alert>
-                  ) : (
-                    <Stack spacing={2}>
-                      <Metric title="Total events" value={statsQuery.data?.total_events ?? '—'} icon={<BarChart3 size={24} />} />
-                      <Metric title="Avg registrations" value={statsQuery.data?.average_registrations ?? '—'} icon={<Users size={24} />} color="secondary" />
-                      <Metric title="Capacity utilization" value={`${statsQuery.data?.capacity_utilization ?? 0}%`} icon={<BadgeCheck size={24} />} color="success" />
-                    </Stack>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent>
-                  <Typography variant="h6" sx={{ mb: 1 }}>Calendar Snapshot</Typography>
-                  <Stack spacing={1}>
-                    {(dashboard.calendar?.slice?.(0, 5) || []).map((item) => (
-                      <Stack key={item.date} direction="row" justifyContent="space-between" alignItems="center">
-                        <Typography variant="body2">{dayjs(item.date).format('MMM D')}</Typography>
-                        <Chip size="small" label={`${item.count} events`} />
-                      </Stack>
-                    ))}
-                    {!dashboard.calendar?.length ? <Alert severity="info">No upcoming calendar entries.</Alert> : null}
-                  </Stack>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
-        </Container>
-
-        <EventFormDialog
-          open={dialogOpen}
-          onClose={() => { setDialogOpen(false); setEditing(null); }}
-          initialValues={editing || { title: '', description: '', venue: '', start_date: dayjs().format('YYYY-MM-DD'), end_date: dayjs().format('YYYY-MM-DD'), capacity: 100, status: 'draft' }}
-          onSubmit={submit}
-          loading={createMutation.isPending || updateMutation.isPending}
-        />
-      </Box>
-    </LocalizationProvider>
+        </Grid>
+      </Container>
+      <EventDialog open={dialogOpen || Boolean(editing)} onClose={() => { setDialogOpen(false); setEditing(null); }} initialValue={editing} onSubmit={submitEvent} venues={venues} loading={createMut.isPending || updateMut.isPending} />
+      {(createMut.isError || updateMut.isError || deleteMut.isError) && <Alert severity="error" sx={{ position: 'fixed', bottom: 16, right: 16 }}>{(createMut.error || updateMut.error || deleteMut.error)?.message || 'Action failed.'}</Alert>}
+    </Box>
   );
 }
