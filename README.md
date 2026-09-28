@@ -32,12 +32,12 @@ Provide the GitHub repository URL and deployed application URL.
 
 ## Contents
 
-- `backend/requirements.txt`
 - `backend/manage.py`
+- `backend/requirements.txt`
+- `backend/.env.example`
 - `backend/config/settings.py`
 - `backend/config/urls.py`
 - `backend/config/wsgi.py`
-- `backend/config/asgi.py`
 - `frontend/src/main.jsx`
 - `frontend/src/App.jsx`
 - `frontend/package.json`
