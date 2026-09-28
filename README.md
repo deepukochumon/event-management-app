@@ -32,28 +32,18 @@ Provide the GitHub repository URL and deployed application URL.
 
 ## Contents
 
-- `backend/manage.py`
 - `backend/requirements.txt`
-- `backend/.env.example`
-- `backend/backend/asgi.py`
-- `backend/backend/wsgi.py`
-- `backend/backend/settings.py`
-- `backend/backend/urls.py`
+- `backend/manage.py`
+- `backend/config/settings.py`
+- `backend/config/urls.py`
+- `backend/config/wsgi.py`
+- `backend/config/asgi.py`
 - `frontend/src/main.jsx`
 - `frontend/src/App.jsx`
 - `frontend/package.json`
 - `frontend/index.html`
 - `frontend/vite.config.js`
 - `frontend/src/styles.css`
-- `frontend/src/pages/DashboardPage.jsx`
-- `frontend/src/pages/EventsPage.jsx`
-- `frontend/src/pages/EventDetailPage.jsx`
-- `frontend/src/pages/EventFormPage.jsx`
-- `frontend/src/pages/VenuesPage.jsx`
-- `frontend/src/pages/AttendeesPage.jsx`
-- `frontend/src/api/hooks.jsx`
-- `frontend/src/utils/formatters.jsx`
-- `frontend/src/api/client.jsx`
 
 ## Getting started
 
